@@ -1,5 +1,10 @@
 import { sql } from "../db";
 import { migrate } from "../db/schema";
+import {
+  signup, login, logout, getSession,
+  getTrialStatus, checkLeadCap, incrementLeadCount,
+  convertToPaid,
+} from "./auth";
 
 // ── Helpers ───────────────────────────────────────────────────────
 
@@ -360,6 +365,22 @@ async function handlePostLeads(req: Request): Promise<Response> {
   const business_type = body.business_type;
   if (!business_type) return Response.json({ error: "business_type is required" }, { status: 400 });
 
+  // ── Trial / subscription gating ──
+  let userId: string | null = null;
+  const token = getAuthToken(req);
+  if (token) {
+    try {
+      const user = await getSession(token);
+      if (user) {
+        const cap = await checkLeadCap(user.id);
+        if (!cap.allowed) {
+          return Response.json({ error: cap.reason || "Lead generation limit reached" }, { status: 403 });
+        }
+        userId = user.id;
+      }
+    } catch { /* non-fatal: proceed without user tracking if auth fails */ }
+  }
+
   const count = Math.min(body.count ?? rand(5, 8), 15);
   const entries = shuffle(getMockEntries(business_type));
   const sourceKeys = shuffle(Object.keys(LEAD_SOURCES));
@@ -409,6 +430,8 @@ async function handlePostLeads(req: Request): Promise<Response> {
       });
     }
     leads.sort((a, b) => (b.score as number) - (a.score as number));
+    // Increment lead count for authenticated users
+    if (userId) { try { await incrementLeadCount(userId); } catch { /* ignore */ } }
     return Response.json({ leads: leads.map(serializeLead) });
   }
 
@@ -431,6 +454,8 @@ async function handlePostLeads(req: Request): Promise<Response> {
     ids.push((result[0] as { id: string }).id);
   }
   const rows = await s`select * from leads where id = any(${ids}) order by score desc`;
+  // Increment lead count for authenticated users
+  if (userId) { try { await incrementLeadCount(userId); } catch { /* ignore */ } }
   return Response.json({ leads: (rows as Record<string, unknown>[]).map(serializeLead) });
 }
 
@@ -574,6 +599,95 @@ async function handleBusinessTypes(): Promise<Response> {
   );
 }
 
+// ── Auth handlers ───────────────────────────────────────────────────
+
+function getAuthToken(req: Request): string | null {
+  const auth = req.headers.get("Authorization");
+  if (!auth || !auth.startsWith("Bearer ")) return null;
+  return auth.slice(7);
+}
+
+async function handleSignup(req: Request): Promise<Response> {
+  try {
+    const body = await req.json() as { email: string; name?: string; password: string };
+    try {
+      const result = await signup(body);
+      return Response.json(result);
+    } catch (err: unknown) {
+      return Response.json({ error: (err as Error).message }, { status: 400 });
+    }
+  } catch {
+    return Response.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+}
+
+async function handleLogin(req: Request): Promise<Response> {
+  try {
+    const body = await req.json() as { email: string; password: string };
+    try {
+      const result = await login(body);
+      return Response.json(result);
+    } catch (err: unknown) {
+      return Response.json({ error: (err as Error).message }, { status: 401 });
+    }
+  } catch {
+    return Response.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+}
+
+async function handleLogout(req: Request): Promise<Response> {
+  const token = getAuthToken(req);
+  if (!token) return Response.json({ error: "Authorization required" }, { status: 401 });
+  try {
+    await logout(token);
+    return Response.json({ ok: true });
+  } catch (err: unknown) {
+    return Response.json({ error: (err as Error).message }, { status: 500 });
+  }
+}
+
+async function handleMe(req: Request): Promise<Response> {
+  const token = getAuthToken(req);
+  if (!token) return Response.json({ error: "Authorization required" }, { status: 401 });
+  try {
+    const user = await getSession(token);
+    if (!user) return Response.json({ error: "Invalid or expired session" }, { status: 401 });
+    return Response.json({ user });
+  } catch (err: unknown) {
+    return Response.json({ error: (err as Error).message }, { status: 500 });
+  }
+}
+
+async function handleTrialStatus(req: Request): Promise<Response> {
+  const token = getAuthToken(req);
+  if (!token) return Response.json({ error: "Authorization required" }, { status: 401 });
+  try {
+    const user = await getSession(token);
+    if (!user) return Response.json({ error: "Invalid or expired session" }, { status: 401 });
+    const status = await getTrialStatus(user.id);
+    return Response.json(status);
+  } catch (err: unknown) {
+    return Response.json({ error: (err as Error).message }, { status: 500 });
+  }
+}
+
+async function handleConvertToPaid(req: Request): Promise<Response> {
+  const token = getAuthToken(req);
+  if (!token) return Response.json({ error: "Authorization required" }, { status: 401 });
+  try {
+    const user = await getSession(token);
+    if (!user) return Response.json({ error: "Invalid or expired session" }, { status: 401 });
+    const body = await req.json() as { stripe_customer_id: string };
+    if (!body.stripe_customer_id) {
+      return Response.json({ error: "stripe_customer_id is required" }, { status: 400 });
+    }
+    const updated = await convertToPaid(user.id, body.stripe_customer_id);
+    return Response.json({ user: updated });
+  } catch (err: unknown) {
+    return Response.json({ error: (err as Error).message }, { status: 500 });
+  }
+}
+
 // ── Main API handler ───────────────────────────────────────────────
 
 let migrated = false;
@@ -613,6 +727,32 @@ export async function handleApiRequest(req: Request): Promise<Response | null> {
 
     if (path === "/api/business-types") {
       if (req.method === "GET") return handleBusinessTypes();
+      return Response.json({ error: "Method not allowed" }, { status: 405 });
+    }
+
+    // Auth endpoints
+    if (path === "/api/auth/signup") {
+      if (req.method === "POST") return handleSignup(req);
+      return Response.json({ error: "Method not allowed" }, { status: 405 });
+    }
+    if (path === "/api/auth/login") {
+      if (req.method === "POST") return handleLogin(req);
+      return Response.json({ error: "Method not allowed" }, { status: 405 });
+    }
+    if (path === "/api/auth/logout") {
+      if (req.method === "POST") return handleLogout(req);
+      return Response.json({ error: "Method not allowed" }, { status: 405 });
+    }
+    if (path === "/api/auth/me") {
+      if (req.method === "GET") return handleMe(req);
+      return Response.json({ error: "Method not allowed" }, { status: 405 });
+    }
+    if (path === "/api/trial-status") {
+      if (req.method === "GET") return handleTrialStatus(req);
+      return Response.json({ error: "Method not allowed" }, { status: 405 });
+    }
+    if (path === "/api/auth/convert") {
+      if (req.method === "POST") return handleConvertToPaid(req);
       return Response.json({ error: "Method not allowed" }, { status: 405 });
     }
 

@@ -27,10 +27,16 @@ function LandingPage() {
               Pricing
             </a>
             <Link
-              to="/dashboard"
+              to="/login"
+              className="text-sm font-medium text-gray-600 hover:text-gray-900"
+            >
+              Log in
+            </Link>
+            <Link
+              to="/signup"
               className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500"
             >
-              Get Started
+              Start Free Trial
             </Link>
           </nav>
         </div>
@@ -56,7 +62,7 @@ function LandingPage() {
           </p>
           <div className="mt-10 flex items-center justify-center gap-4">
             <Link
-              to="/dashboard"
+              to="/signup"
               className="rounded-xl bg-indigo-600 px-8 py-3.5 text-base font-semibold text-white shadow-sm hover:bg-indigo-500 transition-all active:scale-[0.98]"
             >
               Get Started Free

@@ -7,7 +7,7 @@ import {
 import type { ReactNode } from "react";
 
 import appCss from "~/styles/app.css?url";
-import Header from "~/components/Header";
+import { AuthProvider } from "~/lib/auth";
 
 export const Route = createRootRoute({
   head: () => ({
@@ -26,7 +26,9 @@ export const Route = createRootRoute({
 function RootComponent() {
   return (
     <RootDocument>
-      <Outlet />
+      <AuthProvider>
+        <Outlet />
+      </AuthProvider>
     </RootDocument>
   );
 }

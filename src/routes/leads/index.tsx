@@ -1,14 +1,17 @@
 import { useState, useEffect, useCallback } from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import Header from "~/components/Header";
 import LeadList from "~/components/LeadList";
 import { fetchLeads, updateLead, type Lead } from "~/lib/api";
+import { useAuth } from "~/lib/auth";
 
 export const Route = createFileRoute("/leads/")({
   component: LeadsPage,
 });
 
 function LeadsPage() {
+  const { isAuthenticated, loading: authLoading } = useAuth();
+  const navigate = useNavigate();
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -19,6 +22,13 @@ function LeadsPage() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [sortBy, setSortBy] = useState("createdAt");
   const [sortOrder, setSortOrder] = useState("desc");
+
+  // Redirect to login if not authenticated
+  useEffect(() => {
+    if (!authLoading && !isAuthenticated) {
+      navigate({ to: "/login" });
+    }
+  }, [authLoading, isAuthenticated, navigate]);
 
   const loadLeads = useCallback(async () => {
     setLoading(true);
@@ -41,8 +51,10 @@ function LeadsPage() {
   }, [page, statusFilter, search]);
 
   useEffect(() => {
-    loadLeads();
-  }, [loadLeads]);
+    if (isAuthenticated) {
+      loadLeads();
+    }
+  }, [loadLeads, isAuthenticated]);
 
   const handleStatusChange = async (id: string, status: Lead["status"]) => {
     try {
@@ -52,6 +64,14 @@ function LeadsPage() {
       console.error("Failed to update lead status:", err);
     }
   };
+
+  if (authLoading || !isAuthenticated) {
+    return (
+      <div className="flex min-h-dvh items-center justify-center bg-gray-50">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-indigo-600 border-t-transparent" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-dvh bg-gray-50">

@@ -85,5 +85,36 @@ export async function migrate() {
     `;
   }
 
+  // ── users (auth + trial tracking) ──────────────────────────────
+  await s`
+    create table if not exists users (
+      id                  uuid primary key default gen_random_uuid(),
+      email               text not null unique,
+      name                text not null default '',
+      password_hash       text not null,
+      trial_start         timestamptz not null default now(),
+      trial_end           timestamptz not null default (now() + interval '30 days'),
+      trial_leads_used    integer not null default 0,
+      subscription_status text not null default 'trial'
+                            check (subscription_status in ('trial','active','cancelled','expired')),
+      stripe_customer_id  text,
+      created_at          timestamptz not null default now()
+    );
+  `;
+
+  // ── sessions ────────────────────────────────────────────────────
+  await s`
+    create table if not exists sessions (
+      id          uuid primary key default gen_random_uuid(),
+      user_id     uuid not null references users(id) on delete cascade,
+      token       text not null unique,
+      expires_at  timestamptz not null default (now() + interval '7 days'),
+      created_at  timestamptz not null default now()
+    );
+  `;
+
+  await s`create index if not exists idx_sessions_token on sessions(token);`;
+  await s`create index if not exists idx_sessions_user_id on sessions(user_id);`;
+
   return { ok: true };
 }
