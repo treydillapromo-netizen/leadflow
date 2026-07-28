@@ -1,0 +1,69 @@
+@import "tailwindcss";
+
+@theme {
+  --color-navy-50: #eef1f7;
+  --color-navy-100: #d5dceb;
+  --color-navy-200: #b3c0d8;
+  --color-navy-300: #8a9dbf;
+  --color-navy-400: #657da4;
+  --color-navy-500: #4a618a;
+  --color-navy-600: #3a4d72;
+  --color-navy-700: #2e3f5e;
+  --color-navy-800: #253450;
+  --color-navy-900: #1a2744;
+  --color-navy-950: #0f182b;
+
+  --color-gold-50: #fdf8ed;
+  --color-gold-100: #f9edcc;
+  --color-gold-200: #f3d994;
+  --color-gold-300: #edc15c;
+  --color-gold-400: #e8ad36;
+  --color-gold-500: #d4a853;
+  --color-gold-600: #b8891e;
+  --color-gold-700: #93671a;
+  --color-gold-800: #78521c;
+  --color-gold-900: #66441d;
+  --color-gold-950: #3b240c;
+}
+
+@layer base {
+  html,
+  body {
+    @apply bg-white text-gray-800 antialiased;
+    font-family: "Inter", system-ui, -apple-system, sans-serif;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply text-navy-900 font-bold;
+  }
+
+  a {
+    @apply text-navy-700 hover:text-navy-900 transition-colors;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply inline-flex items-center justify-center px-6 py-3 rounded-lg
+           bg-gold-500 text-white font-semibold
+           hover:bg-gold-600 active:bg-gold-700
+           transition-colors duration-200
+           focus:outline-none focus:ring-2 focus:ring-gold-400 focus:ring-offset-2;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center px-6 py-3 rounded-lg
+           border-2 border-navy-700 text-navy-700 font-semibold
+           hover:bg-navy-700 hover:text-white
+           transition-colors duration-200
+           focus:outline-none focus:ring-2 focus:ring-navy-400 focus:ring-offset-2;
+  }
+
+  .section-padding {
+    @apply px-4 sm:px-6 lg:px-8 py-16 sm:py-20;
+  }
+
+  .container-narrow {
+    @apply max-w-3xl mx-auto;
+  }
+}
