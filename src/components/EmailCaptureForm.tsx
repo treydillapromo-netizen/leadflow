@@ -1,8 +1,76 @@
 import { useState } from "react";
 import { createServerFn } from "@tanstack/react-start";
 import { readFile, writeFile } from "node:fs/promises";
+import type { Subscriber } from "~/lib/email";
+import { loadEmailSequence, sendEmail, getNextEmailDue } from "~/lib/email";
 
 const SUBSCRIBERS_PATH = "/home/team/shared/data/subscribers.json";
+
+/**
+ * Process the email queue: sends pending emails to all subscribers who are due.
+ * Called automatically after every signup so existing subscribers get follow-ups
+ * when new people sign up.
+ */
+async function processEmailQueue(): Promise<{
+  processed: number;
+  sent: number;
+  skipped: number;
+  errors: number;
+}> {
+  let processed = 0;
+  let sent = 0;
+  let skipped = 0;
+  let errors = 0;
+
+  let subscribers: Subscriber[];
+  try {
+    const raw = await readFile(SUBSCRIBERS_PATH, "utf8");
+    subscribers = JSON.parse(raw);
+  } catch {
+    return { processed, sent, skipped, errors };
+  }
+
+  if (!subscribers || subscribers.length === 0) {
+    return { processed, sent, skipped, errors };
+  }
+
+  const templates = await loadEmailSequence();
+
+  for (const sub of subscribers) {
+    processed++;
+    const nextEmail = getNextEmailDue(sub);
+    if (nextEmail === null) {
+      skipped++;
+      continue;
+    }
+
+    const template = templates[nextEmail - 1];
+    if (!template) {
+      skipped++;
+      continue;
+    }
+
+    const result = await sendEmail(sub.email, template.subject, template.html);
+
+    if (result.success && !result.error) {
+      sub.lastEmailSent = nextEmail;
+      sub.lastEmailDate = new Date().toISOString();
+      sent++;
+    } else if (result.error?.includes("not configured")) {
+      // RESEND_API_KEY not set — still update state so we don't re-queue
+      sub.lastEmailSent = nextEmail;
+      sub.lastEmailDate = new Date().toISOString();
+      skipped++;
+    } else {
+      errors++;
+    }
+  }
+
+  // Save updated subscriber state
+  await writeFile(SUBSCRIBERS_PATH, JSON.stringify(subscribers, null, 2), "utf8");
+
+  return { processed, sent, skipped, errors };
+}
 
 const subscribeEmail = createServerFn({ method: "POST" })
   .validator((data: unknown) => {
@@ -13,20 +81,55 @@ const subscribeEmail = createServerFn({ method: "POST" })
     return { email: d.email.trim().toLowerCase() };
   })
   .handler(async ({ data }) => {
-    const raw = await readFile(SUBSCRIBERS_PATH, "utf8");
-    const subscribers: { email: string; subscribedAt: string }[] = JSON.parse(raw);
+    let subscribers: Subscriber[];
+    try {
+      const raw = await readFile(SUBSCRIBERS_PATH, "utf8");
+      subscribers = JSON.parse(raw);
+    } catch {
+      subscribers = [];
+    }
 
     // Check for duplicate
     if (subscribers.some((s) => s.email === data.email)) {
       return { success: true, message: "You're already subscribed!" };
     }
 
-    subscribers.push({
-      email: data.email,
-      subscribedAt: new Date().toISOString(),
-    });
+    const now = new Date().toISOString();
 
+    // Add new subscriber with the new data model
+    const newSubscriber: Subscriber = {
+      email: data.email,
+      signupDate: now,
+      lastEmailSent: 0,
+      lastEmailDate: null,
+    };
+    subscribers.push(newSubscriber);
+
+    // Save immediately so the queue processor can see the new subscriber
     await writeFile(SUBSCRIBERS_PATH, JSON.stringify(subscribers, null, 2), "utf8");
+
+    // Send Email 1 immediately to the new subscriber
+    const templates = await loadEmailSequence();
+    const email1 = templates[0];
+    if (email1) {
+      const result = await sendEmail(data.email, email1.subject, email1.html);
+      if (result.success) {
+        // Update the new subscriber's state (re-read in case queue processor already ran)
+        const raw = await readFile(SUBSCRIBERS_PATH, "utf8");
+        const updatedSubs: Subscriber[] = JSON.parse(raw);
+        const idx = updatedSubs.findIndex((s) => s.email === data.email);
+        if (idx !== -1 && updatedSubs[idx].lastEmailSent === 0) {
+          updatedSubs[idx].lastEmailSent = 1;
+          updatedSubs[idx].lastEmailDate = new Date().toISOString();
+          await writeFile(SUBSCRIBERS_PATH, JSON.stringify(updatedSubs, null, 2), "utf8");
+        }
+      }
+    }
+
+    // Run the queue processor for existing subscribers (fire and forget — don't block response)
+    processEmailQueue().catch((err) =>
+      console.error("[email] Queue processor failed:", err)
+    );
 
     return { success: true, message: "Welcome aboard! Check your inbox." };
   });
