@@ -38,7 +38,7 @@ function ThankYou() {
             </div>
           </div>
           <a
-            href="/beginner-cheat-sheet.md"
+            href="/beginner-cheat-sheet.pdf"
             download
             className="btn-primary w-full"
           >

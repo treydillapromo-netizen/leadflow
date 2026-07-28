@@ -5,6 +5,13 @@ import ContentBody, { parseMarkdown } from "~/components/ContentBody";
 
 const GUIDE_PATH = "/home/team/shared/content/zero-to-first-trade.md";
 const GUIDES_JSON_PATH = "/home/team/shared/content/guides.json";
+const PRODUCTS_PATH = "/home/team/shared/content/products.json";
+
+interface Product {
+  name: string;
+  price: string;
+  paymentLink: string;
+}
 
 function injectImages(html: string): string {
   // Insert candlestick anatomy image after "The Default View" paragraph
@@ -64,13 +71,23 @@ const getGuideContent = createServerFn({ method: "GET" }).handler(async () => {
   };
 });
 
+const getProducts = createServerFn({ method: "GET" }).handler(async () => {
+  try {
+    const raw = await readFile(PRODUCTS_PATH, "utf8");
+    const data = JSON.parse(raw) as { products: Product[] };
+    return data.products || [];
+  } catch {
+    return [];
+  }
+});
+
 export const Route = createFileRoute("/guides/zero-to-first-trade")({
-  loader: () => getGuideContent(),
+  loader: () => Promise.all([getGuideContent(), getProducts()]),
   component: GuidePage,
 });
 
 function GuidePage() {
-  const { html, title, excerpt, readTime } = Route.useLoaderData();
+  const [{ html, title, excerpt, readTime }, products] = Route.useLoaderData();
 
   return (
     <div>
@@ -110,21 +127,51 @@ function GuidePage() {
         </div>
       </section>
 
-      {/* Bottom CTA */}
+      {/* Bottom CTA — Premium Products */}
       <section className="section-padding bg-navy-50 border-t border-gray-200">
-        <div className="max-w-2xl mx-auto text-center">
-          <h2 className="text-2xl font-bold text-navy-900 mb-3">Ready to keep learning?</h2>
-          <p className="text-gray-600 mb-6">
-            Get the free Beginner's Cheat Sheet — print it and keep it next to your monitor while you trade.
+        <div className="max-w-3xl mx-auto text-center">
+          <h2 className="text-2xl font-bold text-navy-900 mb-3">Get the Complete Resources</h2>
+          <p className="text-gray-600 mb-8 max-w-xl mx-auto">
+            Downloadable resources to keep next to your monitor while you trade. One-time payment, yours forever.
           </p>
-          <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <a href="/#signup" className="btn-primary">
-              Get the Cheat Sheet →
-            </a>
-            <Link to="/guides" className="btn-secondary">
-              Browse All Guides
-            </Link>
-          </div>
+
+          {products.length > 0 ? (
+            <div className="grid sm:grid-cols-2 gap-6">
+              {products.map((product) => (
+                <div
+                  key={product.name}
+                  className="bg-white border border-gray-200 rounded-xl p-6 hover:shadow-md hover:border-navy-200 transition-all duration-200 flex flex-col text-left"
+                >
+                  <div className="flex-1">
+                    <div className="w-10 h-10 rounded-lg bg-gold-50 flex items-center justify-center mb-3">
+                      <svg className="w-5 h-5 text-gold-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                    </div>
+                    <h3 className="text-lg font-bold text-navy-900 mb-1">{product.name}</h3>
+                    <p className="text-xl font-bold text-gold-600 mb-3">{product.price}</p>
+                  </div>
+                  <a
+                    href={product.paymentLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn-primary text-sm text-center"
+                  >
+                    Buy Now →
+                  </a>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="flex flex-col sm:flex-row gap-4 justify-center">
+              <a href="/#signup" className="btn-primary">
+                Get the Cheat Sheet →
+              </a>
+              <Link to="/guides" className="btn-secondary">
+                Browse All Guides
+              </Link>
+            </div>
+          )}
         </div>
       </section>
     </div>

@@ -5,6 +5,13 @@ import EmailCaptureForm from "~/components/EmailCaptureForm";
 import type { GuideMeta } from "~/components/GuideCard";
 
 const GUIDES_PATH = "/home/team/shared/content/guides.json";
+const PRODUCTS_PATH = "/home/team/shared/content/products.json";
+
+interface Product {
+  name: string;
+  price: string;
+  paymentLink: string;
+}
 
 const getGuides = createServerFn({ method: "GET" }).handler(async () => {
   try {
@@ -16,13 +23,23 @@ const getGuides = createServerFn({ method: "GET" }).handler(async () => {
   }
 });
 
+const getProducts = createServerFn({ method: "GET" }).handler(async () => {
+  try {
+    const raw = await readFile(PRODUCTS_PATH, "utf8");
+    const data = JSON.parse(raw) as { products: Product[] };
+    return data.products || [];
+  } catch {
+    return [];
+  }
+});
+
 export const Route = createFileRoute("/")({
-  loader: () => getGuides(),
+  loader: () => Promise.all([getGuides(), getProducts()]),
   component: Home,
 });
 
 function Home() {
-  const guides = Route.useLoaderData();
+  const [guides, products] = Route.useLoaderData();
   const featuredGuide = guides.length > 0 ? guides[0] : null;
 
   const valueProps = [
@@ -175,6 +192,47 @@ function Home() {
           <p className="text-navy-400 text-xs mt-4">No spam. Unsubscribe anytime. Just honest education.</p>
         </div>
       </section>
+
+      {/* Shop / Resources */}
+      {products.length > 0 && (
+        <section className="section-padding bg-white">
+          <div className="max-w-4xl mx-auto">
+            <h2 className="text-3xl font-bold text-center mb-3">Premium Resources</h2>
+            <p className="text-center text-gray-600 mb-10 max-w-xl mx-auto">
+              Take your learning further with our downloadable guides and reference materials.
+            </p>
+            <div className="grid md:grid-cols-2 gap-6">
+              {products.map((product) => (
+                <div
+                  key={product.name}
+                  className="bg-white border border-gray-200 rounded-2xl p-8 hover:shadow-lg hover:border-navy-200 transition-all duration-200 flex flex-col"
+                >
+                  <div className="flex-1">
+                    <div className="w-12 h-12 rounded-lg bg-gold-50 flex items-center justify-center mb-4">
+                      <svg className="w-6 h-6 text-gold-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                    </div>
+                    <h3 className="text-xl font-bold text-navy-900 mb-2">{product.name}</h3>
+                    <p className="text-2xl font-bold text-gold-600 mb-4">{product.price}</p>
+                    <p className="text-sm text-gray-500 mb-6">
+                      Instant download. One-time payment — yours forever.
+                    </p>
+                  </div>
+                  <a
+                    href={product.paymentLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn-primary w-full text-center"
+                  >
+                    Buy Now →
+                  </a>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
     </div>
   );
 }
