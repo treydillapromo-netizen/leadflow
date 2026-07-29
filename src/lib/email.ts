@@ -1,5 +1,6 @@
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { marked } from "marked";
+import crypto from "node:crypto";
 
 // ── Types ─────────────────────────────────────────────────────────
 
@@ -22,10 +23,20 @@ export interface QueueResult {
   errors: number;
 }
 
+export interface QueuedEmail {
+  id: string;
+  to: string;
+  subject: string;
+  html: string;
+  createdAt: string;
+  sent: boolean;
+}
+
 // ── Constants ─────────────────────────────────────────────────────
 
 const SEQUENCE_PATH = "/home/team/shared/content/email-sequence.md";
-const FROM_ADDRESS = "First Trade Academy <team@alphatradesacademy.ctonew.app>";
+const FROM_ADDRESS = "First Trade Academy <first-trade-academy-7ab0990a@ctomail.io>";
+const EMAIL_QUEUE_PATH = "/home/team/shared/data/email-queue.json";
 
 // Timing offsets in hours from signup
 const TIMING_HOURS: Record<number, number> = {
@@ -110,46 +121,48 @@ async function markdownToHtml(md: string): Promise<string> {
 </html>`;
 }
 
-// ── Email sending ─────────────────────────────────────────────────
+// ── Email queue ───────────────────────────────────────────────────
 
 /**
- * Sends an email via the Resend API.
- * Falls back gracefully (logs + skips) if RESEND_API_KEY is not set.
+ * Queues an email to the file-based queue instead of sending via Resend.
+ * Each call appends to `/home/team/shared/data/email-queue.json`.
  */
 export async function sendEmail(
   to: string,
   subject: string,
   html: string
 ): Promise<{ success: boolean; error?: string }> {
-  const apiKey = process.env.RESEND_API_KEY;
-
-  if (!apiKey) {
-    console.log(`[email] RESEND_API_KEY not set — skipping send to ${to} (subject: "${subject}")`);
-    return { success: true, error: "RESEND_API_KEY not configured — email skipped" };
-  }
-
   try {
-    // Dynamic import so the module isn't required at parse time
-    const { Resend } = await import("resend");
-    const resend = new Resend(apiKey);
+    // Ensure the data directory exists
+    await mkdir("/home/team/shared/data", { recursive: true });
 
-    const { error } = await resend.emails.send({
-      from: FROM_ADDRESS,
+    // Read existing queue (or start fresh)
+    let queue: QueuedEmail[] = [];
+    try {
+      const raw = await readFile(EMAIL_QUEUE_PATH, "utf8");
+      queue = JSON.parse(raw);
+    } catch {
+      // File doesn't exist or is invalid — start with empty array
+    }
+
+    // Append the new email
+    const entry: QueuedEmail = {
+      id: crypto.randomUUID(),
       to,
       subject,
       html,
-    });
+      createdAt: new Date().toISOString(),
+      sent: false,
+    };
+    queue.push(entry);
 
-    if (error) {
-      console.error(`[email] Failed to send to ${to}:`, error);
-      return { success: false, error: error.message };
-    }
+    await writeFile(EMAIL_QUEUE_PATH, JSON.stringify(queue, null, 2), "utf8");
 
-    console.log(`[email] Sent "${subject}" to ${to}`);
+    console.log(`[email] Queued email to ${to} (subject: "${subject}")`);
     return { success: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error(`[email] Error sending to ${to}:`, message);
+    console.error(`[email] Error queuing email to ${to}:`, message);
     return { success: false, error: message };
   }
 }
